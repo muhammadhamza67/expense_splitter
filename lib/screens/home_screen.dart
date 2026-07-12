@@ -7,6 +7,7 @@ import 'add_expense_screen.dart';
 import 'add_people_screen.dart';
 import 'summary_screen.dart';
 import 'settings_screen.dart';
+import 'expense_history_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -259,7 +260,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
 
-              const SizedBox(height: 18),              Row(
+              const SizedBox(height: 18),
+
+              Row(
                 children: [
                   Expanded(
                     child: dashboardCard(
@@ -357,19 +360,45 @@ class _HomeScreenState extends State<HomeScreen> {
                   Expanded(
                     child: actionButton(
                       context: context,
+                      icon: Icons.history_rounded,
+                      title: "History",
+                      color: Colors.teal,
+                      onTap: () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const ExpenseHistoryScreen(),
+                          ),
+                        );
+                        loadDashboard();
+                      },
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 15),
+
+              Row(
+                children: [
+                  Expanded(
+                    child: actionButton(
+                      context: context,
                       icon: Icons.settings,
                       title: "Settings",
                       color: Colors.grey,
                       onTap: () {
-  Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (_) => const SettingsScreen(),
-    ),
-  );
-},
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const SettingsScreen(),
+                          ),
+                        );
+                      },
                     ),
                   ),
+                  const SizedBox(width: 15),
+                  const Expanded(child: SizedBox()),
                 ],
               ),
 
@@ -491,7 +520,9 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
-  }  // ==========================
+  }
+
+  // ==========================
   // Dashboard Card
   // ==========================
 

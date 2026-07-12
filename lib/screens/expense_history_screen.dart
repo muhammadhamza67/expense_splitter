@@ -1,113 +1,229 @@
 import 'package:flutter/material.dart';
 
-class ExpenseHistoryScreen extends StatelessWidget {
+import '../models/expense.dart';
+import '../services/api_service.dart';
+import 'add_expense_screen.dart';
+
+class ExpenseHistoryScreen extends StatefulWidget {
   const ExpenseHistoryScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    const primaryColor = Color(0xFF4CAF50);
+  State<ExpenseHistoryScreen> createState() => _ExpenseHistoryScreenState();
+}
 
+class _ExpenseHistoryScreenState extends State<ExpenseHistoryScreen> {
+  final ApiService apiService = ApiService();
+  static const primaryColor = Color(0xFF4CAF50);
+
+  List<Expense> expenses = [];
+  List<Expense> filteredExpenses = [];
+  bool isLoading = true;
+  String searchQuery = "";
+
+  @override
+  void initState() {
+    super.initState();
+    loadExpenses();
+  }
+
+  Future<void> loadExpenses() async {
+    setState(() => isLoading = true);
+
+    try {
+      final data = await apiService.getExpenses();
+
+      // Newest first (Mongo ObjectIds sort chronologically)
+      data.sort((a, b) => (b.id ?? "").compareTo(a.id ?? ""));
+
+      setState(() {
+        expenses = data;
+        applyFilter();
+        isLoading = false;
+      });
+    } catch (e) {
+      debugPrint(e.toString());
+      setState(() => isLoading = false);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Failed to load expenses")),
+        );
+      }
+    }
+  }
+
+  void applyFilter() {
+    filteredExpenses = expenses.where((expense) {
+      final query = searchQuery.toLowerCase();
+      return expense.title.toLowerCase().contains(query) ||
+          expense.paidBy.toLowerCase().contains(query) ||
+          expense.category.toLowerCase().contains(query);
+    }).toList();
+  }
+
+  Future<void> confirmDelete(Expense expense) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+        ),
+        title: const Text("Delete Expense"),
+        content: Text("Are you sure you want to delete \"${expense.title}\"?"),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text("Cancel"),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text("Delete", style: TextStyle(color: Colors.red)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && expense.id != null) {
+      final success = await apiService.deleteExpense(expense.id!);
+
+      if (success) {
+        setState(() {
+          expenses.removeWhere((e) => e.id == expense.id);
+          applyFilter();
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Expense deleted")),
+          );
+        }
+      } else if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Failed to delete expense")),
+        );
+      }
+    }
+  }
+
+  // Maps a category name to an icon + color so cards keep the same
+  // visual style as before, but now driven by real data.
+  ({IconData icon, Color color}) styleForCategory(String category) {
+    final key = category.toLowerCase();
+
+    if (key.contains("food") || key.contains("dinner") || key.contains("lunch")) {
+      return (icon: Icons.restaurant, color: Colors.green);
+    } else if (key.contains("shop")) {
+      return (icon: Icons.shopping_bag, color: Colors.orange);
+    } else if (key.contains("taxi") ||
+        key.contains("transport") ||
+        key.contains("uber")) {
+      return (icon: Icons.local_taxi, color: Colors.blue);
+    } else if (key.contains("movie") || key.contains("entertain")) {
+      return (icon: Icons.movie, color: Colors.purple);
+    } else if (key.contains("trip") || key.contains("travel")) {
+      return (icon: Icons.flight, color: Colors.teal);
+    } else if (key.contains("coffee")) {
+      return (icon: Icons.coffee, color: Colors.brown);
+    } else if (key.contains("bill")) {
+      return (icon: Icons.receipt_long, color: Colors.indigo);
+    } else {
+      return (icon: Icons.attach_money, color: primaryColor);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xffF7F9FC),
-
       appBar: AppBar(
         title: const Text("Expense History"),
         centerTitle: true,
         elevation: 0,
+        backgroundColor: const Color(0xffF7F9FC),
+        surfaceTintColor: Colors.transparent,
       ),
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : RefreshIndicator(
+              onRefresh: loadExpenses,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  children: [
+                    TextField(
+                      decoration: InputDecoration(
+                        hintText: "Search expenses...",
+                        prefixIcon: const Icon(Icons.search),
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          borderSide: BorderSide.none,
+                        ),
+                      ),
+                      onChanged: (value) {
+                        searchQuery = value;
+                        setState(applyFilter);
+                      },
+                    ),
+                    const SizedBox(height: 20),
+                    Expanded(
+                      child: filteredExpenses.isEmpty
+                          ? ListView(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              children: [
+                                const SizedBox(height: 80),
+                                Icon(
+                                  Icons.receipt_long_rounded,
+                                  size: 60,
+                                  color: Colors.grey.shade300,
+                                ),
+                                const SizedBox(height: 14),
+                                Center(
+                                  child: Text(
+                                    expenses.isEmpty
+                                        ? "No expenses yet"
+                                        : "No matching expenses",
+                                    style: TextStyle(
+                                      color: Colors.grey.shade600,
+                                      fontSize: 16,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              physics: const AlwaysScrollableScrollPhysics(),
+                              itemCount: filteredExpenses.length,
+                              itemBuilder: (context, index) {
+                                final expense = filteredExpenses[index];
+                                final style = styleForCategory(expense.category);
 
-      body: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-
-            TextField(
-              decoration: InputDecoration(
-                hintText: "Search expenses...",
-                prefixIcon: const Icon(Icons.search),
-                filled: true,
-                fillColor: Colors.white,
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(18),
-                  borderSide: BorderSide.none,
+                                return expenseCard(
+                                  icon: style.icon,
+                                  title: expense.title,
+                                  subtitle: "Paid by ${expense.paidBy}",
+                                  amount:
+                                      "Rs ${expense.amount.toStringAsFixed(0)}",
+                                  color: style.color,
+                                  onEdit: () {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          "Editing not available yet",
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  onDelete: () => confirmDelete(expense),
+                                );
+                              },
+                            ),
+                    ),
+                  ],
                 ),
               ),
             ),
-
-            const SizedBox(height: 20),
-
-            Expanded(
-              child: ListView(
-                children: [
-
-                  expenseCard(
-                    icon: Icons.restaurant,
-                    title: "Dinner",
-                    subtitle: "Paid by Muhammad Hamza",
-                    amount: "Rs 1200",
-                    color: Colors.green,
-                  ),
-
-                  expenseCard(
-                    icon: Icons.shopping_bag,
-                    title: "Shopping",
-                    subtitle: "Paid by Ali",
-                    amount: "Rs 850",
-                    color: Colors.orange,
-                  ),
-
-                  expenseCard(
-                    icon: Icons.local_taxi,
-                    title: "Taxi",
-                    subtitle: "Paid by Ahmed",
-                    amount: "Rs 500",
-                    color: Colors.blue,
-                  ),
-
-                  expenseCard(
-                    icon: Icons.movie,
-                    title: "Movie",
-                    subtitle: "Paid by Usman",
-                    amount: "Rs 1500",
-                    color: Colors.purple,
-                  ),
-
-                  expenseCard(
-                    icon: Icons.fastfood,
-                    title: "Lunch",
-                    subtitle: "Paid by Ali",
-                    amount: "Rs 650",
-                    color: Colors.red,
-                  ),
-
-                  expenseCard(
-                    icon: Icons.flight,
-                    title: "Trip",
-                    subtitle: "Paid by Muhammad Hamza",
-                    amount: "Rs 7000",
-                    color: Colors.teal,
-                  ),
-
-                  expenseCard(
-                    icon: Icons.coffee,
-                    title: "Coffee",
-                    subtitle: "Paid by Ahmed",
-                    amount: "Rs 300",
-                    color: Colors.brown,
-                  ),
-
-                  expenseCard(
-                    icon: Icons.receipt_long,
-                    title: "Bills",
-                    subtitle: "Paid by Usman",
-                    amount: "Rs 2100",
-                    color: Colors.indigo,
-                  ),                ],
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 
@@ -117,6 +233,8 @@ class ExpenseHistoryScreen extends StatelessWidget {
     required String subtitle,
     required String amount,
     required Color color,
+    required VoidCallback onEdit,
+    required VoidCallback onDelete,
   }) {
     return Card(
       margin: const EdgeInsets.only(bottom: 15),
@@ -126,17 +244,11 @@ class ExpenseHistoryScreen extends StatelessWidget {
       ),
       child: ListTile(
         contentPadding: const EdgeInsets.all(15),
-
         leading: CircleAvatar(
           radius: 28,
           backgroundColor: color.withOpacity(0.15),
-          child: Icon(
-            icon,
-            color: color,
-            size: 28,
-          ),
+          child: Icon(icon, color: color, size: 28),
         ),
-
         title: Text(
           title,
           style: const TextStyle(
@@ -144,51 +256,48 @@ class ExpenseHistoryScreen extends StatelessWidget {
             fontSize: 18,
           ),
         ),
-
         subtitle: Padding(
           padding: const EdgeInsets.only(top: 5),
           child: Text(
             subtitle,
-            style: const TextStyle(
-              color: Colors.grey,
-            ),
+            style: const TextStyle(color: Colors.grey),
           ),
         ),
-
+        isThreeLine: false,
+        minVerticalPadding: 12,
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
           children: [
             Text(
               amount,
               style: const TextStyle(
                 color: Colors.green,
                 fontWeight: FontWeight.bold,
-                fontSize: 18,
+                fontSize: 16,
               ),
             ),
-
-            const SizedBox(height: 8),
-
+            const SizedBox(height: 4),
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                IconButton(
-                  icon: const Icon(
-                    Icons.edit,
-                    color: Colors.blue,
-                    size: 20,
+                InkWell(
+                  onTap: onEdit,
+                  borderRadius: BorderRadius.circular(20),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.edit, color: Colors.blue, size: 18),
                   ),
-                  onPressed: () {},
                 ),
-
-                IconButton(
-                  icon: const Icon(
-                    Icons.delete,
-                    color: Colors.red,
-                    size: 20,
+                const SizedBox(width: 6),
+                InkWell(
+                  onTap: onDelete,
+                  borderRadius: BorderRadius.circular(20),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.delete, color: Colors.red, size: 18),
                   ),
-                  onPressed: () {},
                 ),
               ],
             ),
